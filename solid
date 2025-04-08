@@ -1,0 +1,175 @@
+using System;
+using System.Collections.Generic;
+public interface IOrder
+{
+    int Id { get; set; }
+    string Status { get; set; }
+    decimal TotalAmount { get; set; }
+    List<string> Items { get; set; }
+    void Validate();
+}
+public interface IOrderSaver
+{
+    void Save(IOrder order);
+}
+public interface IOnlineOrder
+{
+    string Email { get; set; }
+    string Phone { get; set; }
+    void SendConfirmation();
+}
+public class Order : IOrder
+{
+    public int Id { get; set; }
+    public string Status { get; set; } = "New";
+    public decimal TotalAmount { get; set; }
+    public List<string> Items { get; set; } = new List<string>();
+    public virtual void Validate()
+    {
+        if (TotalAmount <= 0)
+            throw new ArgumentException("Сумма заказа должна быть больше нуля");
+
+        if (Items == null || Items.Count == 0)
+            throw new ArgumentException("Заказ должен содержать товары");
+    }
+}
+public class OnlineOrder : Order, IOnlineOrder
+{
+    public string Email { get; set; }
+    public string Phone { get; set; }
+
+    public override void Validate()
+    {
+        base.Validate();
+
+        if (string.IsNullOrWhiteSpace(Email) && string.IsNullOrWhiteSpace(Phone))
+            throw new ArgumentException("Необходимо указать email или телефон");
+    }
+
+    public void SendConfirmation()
+    {
+        string contact = !string.IsNullOrWhiteSpace(Email) ? Email : Phone;
+        Console.WriteLine($"Отправлено подтверждение заказа {Id} на {contact}");
+    }
+}
+public class DatabaseOrderSaver : IOrderSaver
+{
+    public void Save(IOrder order)
+    {
+        Console.WriteLine($"[Database] Заказ #{order.Id} сохранен. Статус: {order.Status}");
+        Console.WriteLine($"Товары: {string.Join(", ", order.Items)}");
+        Console.WriteLine($"Сумма: {order.TotalAmount} руб.");
+    }
+}
+public class FileOrderSaver : IOrderSaver
+{
+    private readonly string _filePath;
+
+    public FileOrderSaver(string filePath)
+    {
+        _filePath = filePath;
+    }
+
+    public void Save(IOrder order)
+    {
+        string content = $"Заказ #{order.Id}\nСтатус: {order.Status}\n" +
+                        $"Товары: {string.Join(", ", order.Items)}\n" +
+                        $"Сумма: {order.TotalAmount} руб.";
+
+        System.IO.File.WriteAllText(_filePath, content);
+        Console.WriteLine($"[File] Заказ сохранен в файл: {_filePath}");
+    }
+}
+public class OrderProcessor
+{
+    private readonly IOrderSaver _orderSaver;
+
+    public OrderProcessor(IOrderSaver orderSaver)
+    {
+        _orderSaver = orderSaver;
+    }
+
+    public void ProcessOrder(IOrder order)
+    {
+        try
+        {
+            Console.WriteLine($"\nОбработка заказа #{order.Id}");
+            order.Validate();
+            
+            _orderSaver.Save(order);
+
+            if (order is IOnlineOrder onlineOrder)
+            {
+                onlineOrder.SendConfirmation();
+            }
+
+            order.Status = "Processed";
+            Console.WriteLine("Заказ успешно обработан");
+        }
+        catch (Exception ex)
+        {
+            order.Status = "Failed";
+            Console.WriteLine($"Ошибка обработки заказа: {ex.Message}");
+        }
+    }
+}
+public static class OrderFactory
+{
+    public static IOrder CreateOrder(bool isOnline, int id)
+    {
+        if (isOnline)
+        {
+            return new OnlineOrder
+            {
+                Id = id,
+                Email = $"user{id}@example.com",
+                Phone = "+7916000000" + id.ToString("00"),
+                TotalAmount = 100 * id,
+                Items = new List<string> { "Товар1", "Товар2" }
+            };
+        }
+
+        return new Order
+        {
+            Id = id,
+            TotalAmount = 100 * id,
+            Items = new List<string> { "Товар1", "Товар2" }
+        };
+    }
+}
+class Program
+{
+    static void Main()
+    {
+        Console.WriteLine("=== Система обработки заказов ===");
+
+        var orders = new List<IOrder>
+        {
+            OrderFactory.CreateOrder(false, 1),
+            OrderFactory.CreateOrder(true, 2),
+            OrderFactory.CreateOrder(true, 3)
+        };
+
+        IOrderSaver saver = new DatabaseOrderSaver(); // Можно заменить на FileOrderSaver
+        var processor = new OrderProcessor(saver);
+        foreach (var order in orders)
+        {
+            processor.ProcessOrder(order);
+        }
+
+        Console.WriteLine("\n=== Демонстрация разных способов сохранения ===");
+        
+        var testOrder = OrderFactory.CreateOrder(true, 99);
+        
+        var savers = new List<IOrderSaver>
+        {
+            new DatabaseOrderSaver(),
+            new FileOrderSaver("test_order.txt")
+        };
+
+        foreach (var testSaver in savers)
+        {
+            new OrderProcessor(testSaver).ProcessOrder(testOrder);
+        }
+    }
+}
